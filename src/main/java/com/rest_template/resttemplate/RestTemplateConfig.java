@@ -41,10 +41,6 @@ public class RestTemplateConfig {
 
         log.info("restTemplate.getRequestFactory().getClass() : {}", restTemplate.getRequestFactory().getClass());
 
-        for (HttpMessageConverter converter : restTemplate.getMessageConverters()) {
-            log.info("converter.getClass() : {}", converter.getClass());
-        }
-
         /* Message Converter */
         MappingJackson2HttpMessageConverter mappingJackson2HttpMessageConverter = new MappingJackson2HttpMessageConverter();
         mappingJackson2HttpMessageConverter.setSupportedMediaTypes(List.of(MediaType.TEXT_HTML));
@@ -53,11 +49,24 @@ public class RestTemplateConfig {
         messageConverters.add(mappingJackson2HttpMessageConverter);
         messageConverters.add(new StringHttpMessageConverter());
 
-        restTemplate.setMessageConverters(messageConverters);
-        restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
+        /* add 와 set 둘중 하나만 하면 된다.*/
+        //restTemplate.setMessageConverters(messageConverters); // set
+        /*
+        converter.getClass() : class org.springframework.http.converter.json.MappingJackson2HttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
+         */
 
-        log.info("restTemplate.getRequestFactory().getClass() : {}", restTemplate.getRequestFactory().getClass());
-
+        restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8)); // add
+        /*
+        converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.ByteArrayHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.ResourceHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.xml.SourceHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.support.AllEncompassingFormHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.xml.Jaxb2RootElementHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.json.MappingJackson2HttpMessageConverter
+         */
         for (HttpMessageConverter converter : restTemplate.getMessageConverters()) {
             log.info("converter.getClass() : {}", converter.getClass());
         }

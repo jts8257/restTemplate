@@ -117,21 +117,162 @@ public class RestTemplateConfig {
 위에서 코드 추가 예정 부분에 아래의 코드를 추가하면 set 을 했기 때문에 다른 Message Converter 들은 보이지 않고, 대신 설정된 Message Converter 만 나오는게 보인다. 
 
 ```java
+      /* Message Converter */
         MappingJackson2HttpMessageConverter mappingJackson2HttpMessageConverter = new MappingJackson2HttpMessageConverter();
-        mappingJackson2HttpMessageConverter.setSupportedMediaTypes(List.of(MediaType.TEXT_HTML));
+                mappingJackson2HttpMessageConverter.setSupportedMediaTypes(List.of(MediaType.TEXT_HTML));
 
-        List<HttpMessageConverter<?>> messageConverters = new ArrayList<>();
+                List<HttpMessageConverter<?>> messageConverters = new ArrayList<>();
         messageConverters.add(mappingJackson2HttpMessageConverter);
         messageConverters.add(new StringHttpMessageConverter());
 
-        restTemplate.setMessageConverters(messageConverters);
-        restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
+        /* add 와 set 둘중 하나만 하면 된다.*/
+        restTemplate.setMessageConverters(messageConverters); // set
+        /* set 출력결과
+        converter.getClass() : class org.springframework.http.converter.json.MappingJackson2HttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
+         */
 
-        /* 출력 결과
-                converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
-                converter.getClass() : class org.springframework.http.converter.json.MappingJackson2HttpMessageConverter
-                converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
+        restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8)); // add
+        /* add 출력결과 
+        converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.ByteArrayHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.StringHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.ResourceHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.xml.SourceHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.support.AllEncompassingFormHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.xml.Jaxb2RootElementHttpMessageConverter
+        converter.getClass() : class org.springframework.http.converter.json.MappingJackson2HttpMessageConverter
          */
 ```
 
-# Q 왜 로그가 2번 찍힐까? Spring 이 아니라 Spring boot 여서 그런가?
+## RestTemplate Method
+Http message 의 GET, POST, DELETE, PUT 등의 메서드를 RestTemplate 로 이용하는 방법이다.
+
+메서드 테스트를 위해 port 7070 으로 간단한 Controller 와 dto 를 가진 서버를 띄운다.
+```java
+// dto
+@Getter
+@Setter
+@NoArgsConstructor
+public class Member {
+    private Integer id;
+    private String name;
+
+    Member(Integer id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+}
+
+// repository
+@Repository
+public class MemberRepository {
+    private final Map<Integer, Member> memberMap = new LinkedHashMap<>();
+
+    @PostConstruct
+    public void repoSetting() {
+        memberMap.put(1, new Member(1, "name1"));
+        memberMap.put(2, new Member(2, "name2"));
+        memberMap.put(3, new Member(3, "name3"));
+        memberMap.put(4, new Member(4, "name4"));
+        memberMap.put(5, new Member(5, "name5"));
+    }
+
+    public Member findById(Integer id) {
+        return memberMap.get(id);
+    }
+
+    public void save(Member member) {
+        memberMap.put(member.getId(), member);
+    }
+}
+
+// controller
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/simp/member")
+public class SimpController {
+
+    private final MemberRepository memberRepository;
+
+    @GetMapping("/{id}")
+    public Member getMember(@PathVariable Integer id) {
+        return memberRepository.findById(id);
+    }
+
+    @PostMapping()
+    public void saveMember(@RequestBody Member member) {
+        memberRepository.save(member);
+    }
+}
+```
+그리고 8080 port 를 가진 서버에는 테스트 코드를 작성한다. 이 코드는 GET 메서드에 대해서만 다룬다. <br>
+URI 를 직접 String 으로 작성해서 넘겨주는 방식과, URI Component 클래스로 만들어서 넘겨주는 방식이 있다. <br>
+만약 URI 에 한글이 포함되어 있다고 하더라도 getForObject 와 URI Component 가 인코딩 과정을 거치기 때문에 오류가 발생하지 않는다. <br>
+그런데 URI Component 를  `.toString()` 메서드를 통해 String 타입으로 인자를 전달해줄 경우 이중으로 인코딩을 거치게 되므로 오류가 발생할 수 있다. 
+
+```java
+@SpringBootTest
+public class RestTemplateTest {
+
+    private final RestTemplate template = new RestTemplate();
+
+    // path variable 도 uri 에 명시해줘야한다.
+    // 그리고 사용되는 Parameter 들은 따로 Map 으로 만들어서 추가해준다. path variable, query string 모두 포함.
+    @Test
+    void simp_get1() throws Exception {
+        String reqUri = "http://localhost:7070/api/simp/member/{id}";
+        Map<String, Integer> params = new HashMap<>();
+        params.put("id", 1);
+
+        Member member = template.getForObject(reqUri, Member.class, params);
+        Assertions.assertThat(member.getName()).isEqualTo("name1");
+    }
+
+    // uri component 라는 클래스를 이용해서 요청을 보내는 방법도 있다.
+    // 이때 query string 은 .queryParam("","") 형식으로 따로 추가한다.
+    // path variable 은 동일하게 map 형식으로 만들어서 .buildAndExpand() 영역에 추가한다. 
+    @Test
+    void simp_get2() throws Exception {
+        String reqUri = "http://localhost:7070/api/simp/member";
+        Map<String, Integer> params = new HashMap<>();
+        params.put("id", 1);
+
+        UriComponents builder = UriComponentsBuilder.fromHttpUrl(reqUri)
+                .path("/{id}")
+                .encode()
+                .buildAndExpand(params);
+
+        Member member = template.getForObject(builder.toUri(), Member.class);
+        Assertions.assertThat(member.getName()).isEqualTo("name1");
+    }
+}
+```
+POST 메서드는 HttpEntity 를 통해서 header 와 body 를 같이 전달 할 수 있다. 
+
+```java
+    @Test
+    void simp_post1() throws Exception {
+        String reqUri = "http://localhost:7070/api/simp/member";
+
+        Member member = new Member(6, "name6");
+        Member member2 = template.postForObject(reqUri, member,Member.class);
+        Assertions.assertThat(member2.getName()).isEqualTo("name6");
+    }
+
+    @Test
+    void simp_post2() throws Exception {
+        String reqUri = "http://localhost:7070/api/simp/member";
+
+        Member member = new Member(7, "name7");
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Authorization","test key");
+
+        Member member2 = template.postForObject(reqUri, new HttpEntity<>(member, headers),Member.class);
+        Assertions.assertThat(member2.getName()).isEqualTo("name7");
+    }
+```
+
+
+참고한 블로그 : https://e2e2e2.tistory.com/15
+
